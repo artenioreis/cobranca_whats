@@ -8,14 +8,14 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 import time
 import locale
 from datetime import datetime
 from urllib.parse import quote
 import re
 
-# Configuração de locale
+# Configuração de locale para formatação de moeda brasileira
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
 except locale.Error:
@@ -26,11 +26,8 @@ except locale.Error:
 
 class AppIntegrada:
     def __init__(self, root):
-        """
-        Inicializa a janela principal e configurações.
-        """
         self.root = root
-        self.root.title("Sistema Integrado de Cobrança")
+        self.root.title("Sistema Integrado de Cobrança - Varejão Farma")
         self.root.geometry("550x720")
 
         # Variáveis de Configuração
@@ -51,11 +48,9 @@ class AppIntegrada:
         self.frame = ttk.Frame(self.root, padding="15")
         self.frame.pack(fill=tk.BOTH, expand=True)
 
-        # Título
         ttk.Label(self.frame, text="Configuração do SQL Server", font=('Arial', 12, 'bold')).grid(
             row=0, column=0, columnspan=2, pady=10)
 
-        # Campos de Entrada
         campos = [
             ("Servidor:", self.servidor, 1),
             ("Banco de Dados:", self.banco, 2),
@@ -69,14 +64,9 @@ class AppIntegrada:
             ttk.Entry(self.frame, textvariable=var, width=35, show=show_char).grid(
                 row=linha, column=1, pady=5, sticky=tk.W)
 
-        # Checkbox
-        ttk.Checkbutton(
-            self.frame,
-            text="Lembrar senha",
-            variable=self.lembrar_senha
-        ).grid(row=5, column=0, columnspan=2, pady=5, sticky=tk.W)
+        ttk.Checkbutton(self.frame, text="Lembrar senha", variable=self.lembrar_senha).grid(
+            row=5, column=0, columnspan=2, pady=5, sticky=tk.W)
 
-        # Botão Principal
         style = ttk.Style()
         style.configure('Accent.TButton', font=('Arial', 10, 'bold'), foreground='black', background="#3CA592")
         
@@ -87,16 +77,11 @@ class AppIntegrada:
             style='Accent.TButton'
         ).grid(row=6, column=0, columnspan=2, pady=15, sticky=tk.EW)
 
-        # Área de Status
         self.status_text = tk.Text(self.frame, height=18, width=60, state=tk.DISABLED, wrap=tk.WORD)
         self.status_text.grid(row=7, column=0, columnspan=2, pady=5)
 
-        # Botão Fechar
-        ttk.Button(
-            self.frame,
-            text="Fechar Aplicação",
-            command=self.on_closing
-        ).grid(row=8, column=0, columnspan=2, pady=(5,10), sticky=tk.EW)
+        ttk.Button(self.frame, text="Fechar Aplicação", command=self.on_closing).grid(
+            row=8, column=0, columnspan=2, pady=(5,10), sticky=tk.EW)
 
     def simple_encrypt(self, text):
         return base64.b64encode(text.encode('utf-8')).decode('utf-8')
@@ -116,11 +101,9 @@ class AppIntegrada:
                     self.servidor.set(config.get('servidor', ''))
                     self.banco.set(config.get('banco', ''))
                     self.usuario.set(config.get('usuario', ''))
-                    
                     senha_cripto = config.get('senha', '')
                     if senha_cripto:
                         self.senha.set(self.simple_decrypt(senha_cripto))
-                    
                     self.lembrar_senha.set(config.get('lembrar_senha', True))
                 self.atualizar_status("Configurações carregadas.")
             except Exception as e:
@@ -133,11 +116,7 @@ class AppIntegrada:
             'usuario': self.usuario.get(),
             'lembrar_senha': self.lembrar_senha.get()
         }
-        if self.lembrar_senha.get():
-            config['senha'] = self.simple_encrypt(self.senha.get())
-        else:
-            config['senha'] = ""
-
+        config['senha'] = self.simple_encrypt(self.senha.get()) if self.lembrar_senha.get() else ""
         try:
             with open('config_db.json', 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=4)
@@ -147,90 +126,76 @@ class AppIntegrada:
             return False
 
     def conectar_sql_server(self):
-        server = self.servidor.get()
-        database = self.banco.get()
-        username = self.usuario.get()
-        password = self.senha.get()
-
+        server, database, username, password = self.servidor.get(), self.banco.get(), self.usuario.get(), self.senha.get()
         if not all([server, database, username, password]):
             messagebox.showerror("Erro", "Preencha todos os campos do SQL.")
             return False
-
         try:
-            conn_str = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-                f"SERVER={server};DATABASE={database};"
-                f"UID={username};PWD={password};"
-                f"TrustServerCertificate=yes;"
-            )
+            conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password};TrustServerCertificate=yes;"
             self.atualizar_status(f"🔄 Conectando ao SQL: {server}...")
             self.conn_sql = pyodbc.connect(conn_str)
-            
-            cursor = self.conn_sql.cursor()
-            cursor.execute("SELECT @@VERSION")
             self.atualizar_status("✅ Conexão SQL estabelecida com sucesso!")
             return True
         except pyodbc.Error as e:
             self.atualizar_status(f"❌ Erro SQL: {e}")
-            messagebox.showerror("Erro Conexão", str(e))
             return False
 
     def buscar_dados_cobranca(self):
-        if not self.conn_sql:
-            return None
-
+        if not self.conn_sql: return None
+        # Utilizando o novo SELECT fornecido com JOIN e filtros específicos
         query = """
-        SELECT TOP 6
-            Razao_social, Num_Bloqueto, Vlr_Documento,
-            Dat_Vencimento, Cod_Barra, fone1
-        FROM V_CTREC7DIAS
+        SELECT top 3
+            C.Razao_social, 
+            R.Num_Documento as Numero_Nota,
+            R.Vlr_Documento,
+            R.Dat_Vencimento,
+            R.Cod_Barra,
+            C.fone1
+        FROM CTREC R
+        INNER JOIN CLIEN C ON R.Cod_Cliente = C.codigo
+        WHERE 
+            ((R.Status = 'A') OR (R.Status = 'P')) 
+            AND R.Vlr_Saldo > 0
+            AND CAST(R.Dat_Vencimento AS DATE) = CAST(DATEADD(DAY, 7, GETDATE()) AS DATE)
+            AND Cod_Estabe=0
         """
         try:
-            self.atualizar_status("🔄 Buscando dados na view V_CTREC3DIAS...")
+            self.atualizar_status("🔄 Buscando dados de faturas vencendo em 7 dias...")
             cursor = self.conn_sql.cursor()
             cursor.execute(query)
             colunas = [col[0] for col in cursor.description]
             dados = [dict(zip(colunas, row)) for row in cursor.fetchall()]
-
             if not dados:
-                self.atualizar_status("⚠️ Nenhum registro encontrado na view.")
+                self.atualizar_status("⚠️ Nenhum registro encontrado para a data de hoje + 7 dias.")
                 return None
-            
             self.atualizar_status(f"✅ {len(dados)} registros encontrados.")
             return dados
         except pyodbc.Error as e:
-            self.atualizar_status(f"❌ Erro na consulta: {e}")
+            self.atualizar_status(f"❌ Erro na consulta SQL: {e}")
             return None
 
-    def limpar_numero_telefone(self, telefone, codigo_pais="55"):
+    def limpar_numero_telefone(self, telefone):
         if not telefone: return None
         num_limpo = re.sub(r'\D', '', str(telefone))
-        
-        # Lógica simples para tratar DDD e 9º dígito
-        if len(num_limpo) < 10: 
-            return None # Número muito curto
-            
-        if not num_limpo.startswith(codigo_pais):
-            num_limpo = codigo_pais + num_limpo
-            
-        return num_limpo
+        if len(num_limpo) < 10: return None
+        return "55" + num_limpo if not num_limpo.startswith("55") else num_limpo
 
     def formatar_mensagem(self, cliente):
         try:
-            val = cliente['Vlr_Documento']
-            val_fmt = locale.currency(float(val), grouping=True) if val else "R$ 0,00"
-            
+            val_fmt = locale.currency(float(cliente['Vlr_Documento']), grouping=True) if cliente['Vlr_Documento'] else "R$ 0,00"
             dt = cliente['Dat_Vencimento']
             dt_fmt = dt.strftime('%d/%m/%Y') if isinstance(dt, datetime) else str(dt)
-
-            msg = (
+            return (
                 f"Prezado(a) {cliente.get('Razao_social', 'Cliente')},\n\n"
-                f"Lembrete: O boleto referente à fatura {cliente.get('Num_Bloqueto', 'N/A')} "
-                f"no valor de {val_fmt} vencerá em breve ({dt_fmt}).\n"
-                f"Código de barras: {cliente.get('Cod_Barra', 'N/A')}\n\n"
-                f"Pagamento via internet banking ou lotéricas."
+                f"Esperamos que esteja bem!\n"
+                f"Este é um lembrete amigável para informar que o boleto referente à fatura nº {cliente.get('Numero_Nota', 'N/A')}, "
+                f"no valor de {val_fmt}, vencerá em breve, na data {dt_fmt}.\n\n"
+                f"💳 O pagamento pode ser realizado via internet banking, aplicativo do seu banco ou em casas lotéricas/agências bancárias.\n\n"
+                f"Em caso de dúvidas ou se precisar da 2ª via do boleto, estamos à disposição para ajudar.\n"
+                f"Agradecemos a preferência!\n\n"
+                f"Atenciosamente,\n"
+                f"Varejão Farma 💊"
             )
-            return msg
         except Exception as e:
             self.atualizar_status(f"Erro ao formatar mensagem: {e}")
             return None
@@ -238,22 +203,15 @@ class AppIntegrada:
     def abrir_whatsapp_web(self):
         try:
             self.atualizar_status("\n🔄 Abrindo WhatsApp Web...")
-            self.root.update()
-            
             options = webdriver.ChromeOptions()
             options.add_argument("--start-maximized")
-            # Salva sessão do usuário
             user_data = os.path.join(os.getcwd(), "chrome_profile_wpp")
             if not os.path.exists(user_data): os.makedirs(user_data)
             options.add_argument(f"user-data-dir={user_data}")
-
             self.navegador = webdriver.Chrome(options=options)
             self.navegador.get("https://web.whatsapp.com")
-            
-            self.atualizar_status("Aguardando login (escaneie o QR Code)...")
-            WebDriverWait(self.navegador, 120).until(
-                EC.presence_of_element_located((By.ID, "side"))
-            )
+            self.atualizar_status("Aguardando login...")
+            WebDriverWait(self.navegador, 120).until(EC.presence_of_element_located((By.ID, "side")))
             self.atualizar_status("✅ WhatsApp Conectado!")
             return True
         except Exception as e:
@@ -262,67 +220,38 @@ class AppIntegrada:
 
     def enviar_mensagem(self, telefone, texto):
         if not self.navegador: return False
-        
         num_fmt = self.limpar_numero_telefone(telefone)
-        if not num_fmt:
-            self.atualizar_status(f"⚠️ Telefone inválido: {telefone}")
-            return False
-
-        url = f"https://web.whatsapp.com/send?phone={num_fmt}&text={quote(texto)}"
+        if not num_fmt: return False
         try:
+            url = f"https://web.whatsapp.com/send?phone={num_fmt}&text={quote(texto)}"
             self.navegador.get(url)
-            time.sleep(5) # Aguarda carregamento inicial
-
-            # Botão Enviar
-            btn_xpath = '//span[@data-icon="send"]'
-            btn = WebDriverWait(self.navegador, 20).until(
-                EC.element_to_be_clickable((By.XPATH, btn_xpath))
-            )
+            # Seletor atualizado para o botão de envio
+            btn_xpath = '//span[@data-icon="send"]/parent::button | //button[@aria-label="Enviar"]'
+            btn = WebDriverWait(self.navegador, 35).until(EC.element_to_be_clickable((By.XPATH, btn_xpath)))
+            time.sleep(2) 
             btn.click()
-            time.sleep(3) # Aguarda envio
+            time.sleep(3) 
             self.atualizar_status(f"✔️ Enviado para {num_fmt}")
             return True
-        except TimeoutException:
-            self.atualizar_status(f"❌ Falha/Timeout ao enviar para {num_fmt}")
-            return False
         except Exception as e:
-            self.atualizar_status(f"❌ Erro envio: {e}")
+            self.atualizar_status(f"❌ Erro envio para {num_fmt}")
             return False
 
     def iniciar_processo_completo(self):
         self.status_text.config(state=tk.NORMAL)
         self.status_text.delete(1.0, tk.END)
         self.status_text.config(state=tk.DISABLED)
-
-        if not self.salvar_configuracoes(): return
-        if not self.conectar_sql_server(): return
-
+        if not self.salvar_configuracoes() or not self.conectar_sql_server(): return
         dados = self.buscar_dados_cobranca()
-        if not dados:
-            if self.conn_sql: self.conn_sql.close()
-            return
-
-        if not self.abrir_whatsapp_web():
-            if self.conn_sql: self.conn_sql.close()
-            return
-
+        if not dados: return
+        if not self.abrir_whatsapp_web(): return
         sucesso = 0
-        self.atualizar_status(f"\n🚀 Enviando {len(dados)} mensagens...")
-        
         for cli in dados:
-            msg = self.formatar_mensagem(cli)
-            fone = cli.get('fone1')
-            if msg and fone:
-                if self.enviar_mensagem(fone, msg):
-                    sucesso += 1
-            else:
-                self.atualizar_status(f"⚠️ Dados incompletos para {cli.get('Razao_social')}")
-            
+            msg, fone = self.formatar_mensagem(cli), cli.get('fone1')
+            if msg and fone and self.enviar_mensagem(fone, msg): sucesso += 1
+            time.sleep(2)
         self.atualizar_status(f"\n🏁 Finalizado! Sucesso: {sucesso}/{len(dados)}")
-        
-        if self.conn_sql:
-            self.conn_sql.close()
-        
+        if self.conn_sql: self.conn_sql.close()
         messagebox.showinfo("Concluído", f"Processo finalizado.\nEnviados: {sucesso}")
 
     def atualizar_status(self, msg):
@@ -333,12 +262,8 @@ class AppIntegrada:
         self.root.update_idletasks()
 
     def on_closing(self):
-        if self.navegador:
-            try: self.navegador.quit()
-            except: pass
-        if self.conn_sql:
-            try: self.conn_sql.close()
-            except: pass
+        if self.navegador: self.navegador.quit()
+        if self.conn_sql: self.conn_sql.close()
         self.root.destroy()
 
 if __name__ == "__main__":
